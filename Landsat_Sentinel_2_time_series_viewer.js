@@ -21,47 +21,55 @@
 */
 ////Parameters defination 
 //pick up an initial location
-  var locat = ee.Geometry.Point(45.60929, 32.35115); 
+var locat = ee.Geometry.Point(45.60929, 32.35115); 
 
 //Select the imgery during which period for plotting NDVI time series
-  var start='2015-01-1';
-  var end='2017-12-30';
+var start='2015-01-1';
+var end='2023-12-30';
 //Select spring imagery for the second window
-  var start1='2016-04-15';
-  var end1='2016-07-1'; 
+var start1='2018-04-15';
+var end1='2018-07-1'; 
 //Select autumn imagery for the third window
-  var start2='2017-07-1';
-  var end2='2017-09-20';
+var start2='2019-07-1';
+var end2='2019-09-20';
 
 //Defined the months for plotting NDVI time series 4:April, 11:November
-  var startmonth= ee.Number(1);
-  var endmonth=  ee.Number(12);
+var startmonth= ee.Number(1);
+var endmonth=  ee.Number(12);
 
 //Define the wondow size, 90 is a kernal size of three Landsat pixels
-  var kernalsize =ee.Number(30);
+var kernalsize =ee.Number(30);
 
 //Define the size of the NDVI time series inspector panel
-  var panelsize ='500px';
+var panelsize ='500px';
 
 //select *th clouded imagery for the first window. For instant, 0 indicate the least clouded imagery, 
 //1 indicates the second least clouded imagery; 2 indicates the third least clouded imagery, etc.
-  var cloudness=ee.Number(0);
+var cloudness=ee.Number(0);
+
+// Apply L8 scaling factors.
+function applyL8ScaleFactors(image) {
+  var opticalBands = image.select('SR_B.').multiply(0.0000275).add(-0.2);
+  var thermalBands = image.select('ST_B.*').multiply(0.00341802).add(149.0);
+  return image.addBands(opticalBands, null, true)
+              .addBands(thermalBands, null, true);
+}
 
 ////Cloud masking and caculate NDVI
 //cloud mask for L8, check https://landsat.usgs.gov/landsat-surface-reflectance-quality-assessment
-  var cloudMaskL8 = function(image) {
-  var qa = image.select('pixel_qa');
+var cloudMaskL8 = function(image) {
+  var qa = image.select('QA_PIXEL');
   var cloud = qa.bitwiseAnd(1 << 5)              
                 .and(qa.bitwiseAnd(1 << 6).or(qa.bitwiseAnd(1 << 7))) 
                 .or(qa.bitwiseAnd(1 << 4))
                 .or(qa.bitwiseAnd(1 << 3))  
-                .or(qa.bitwiseAnd(1 << 8).and(qa.bitwiseAnd(1 << 9)));   
+                .or(qa.bitwiseAnd(1 << 8).and(qa.bitwiseAnd(1 << 9)));
  // var mask2 = image.mask().reduce(ee.Reducer.min());
-  return image.select(['B2','B3','B4','B5','B6','B7'],['blue', 'green', 'red', 'nir', 'swir1', 'swir2'])
+  return image.select(['SR_B2','SR_B3','SR_B4','SR_B5','SR_B6','SR_B7'],['blue', 'green', 'red', 'nir', 'swir1', 'swir2'])
       .updateMask(cloud.not())//.updateMask(mask2)
 };
 //Calculate NDVI
-  var addNDVI= function(image){
+var addNDVI= function(image){
   var ndvi =image.normalizedDifference(['nir','red']).rename('L8_SR_NDVI');
   return image.addBands(ndvi);
 };
@@ -109,43 +117,46 @@ var greenessL8 = function(image){
       }).rename('L8_SR_greeness');
   return image.addBands(green);
 };   
+
+//Apply scaling and filtering to image collection
+var collectionL8 = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')
+    .filterDate(start, end)
+    .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
+    .map(applyL8ScaleFactors);
+
 //Apply the cloud mask on L8
-  var collectionL8_ndvi = ee.ImageCollection('LANDSAT/LC08/C01/T1_SR')
-    .filterDate(start, end)
-    .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
+  var collectionL8_ndvi = collectionL8
     .map(cloudMaskL8)
     .map(addNDVI)
-    .map(bsiL8)
     .select('L8_SR_NDVI');
-  var collectionL8_bsi = ee.ImageCollection('LANDSAT/LC08/C01/T1_SR')
-    .filterDate(start, end)
-    .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
+  var collectionL8_bsi = collectionL8
     .map(cloudMaskL8)
-    .map(addNDVI)
     .map(bsiL8)
     .select('L8_SR_bsi');
-  var collectionL8_wet = ee.ImageCollection('LANDSAT/LC08/C01/T1_SR')
-    .filterDate(start, end)
-    .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
+  var collectionL8_wet = collectionL8
     .map(cloudMaskL8)
     .map(wetnessL8)
     .select('L8_SR_wetness'); 
-  var collectionL8_bright = ee.ImageCollection('LANDSAT/LC08/C01/T1_SR')
-    .filterDate(start, end)
-    .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
+  var collectionL8_bright = collectionL8
     .map(cloudMaskL8)
     .map(brightnessL8)
     .select('L8_SR_brightness');     
-  var collectionL8_green = ee.ImageCollection('LANDSAT/LC08/C01/T1_SR')
-    .filterDate(start, end)
-    .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
+  var collectionL8_green = collectionL8
     .map(cloudMaskL8)
     .map(greenessL8)
     .select('L8_SR_greeness');  
 
+// Apply L4-L7 scaling factors
+function applyScaleFactors(image) {
+  var opticalBands = image.select('SR_B.').multiply(0.0000275).add(-0.2);
+  var thermalBand = image.select('ST_B6').multiply(0.00341802).add(149.0);
+  return image.addBands(opticalBands, null, true)
+              .addBands(thermalBand, null, true);
+}
+
 //cloud mask for L4-7
   var cloudMaskL457 = function(image) {
-  var qa = image.select('pixel_qa');
+  var qa = image.select('QA_PIXEL');
   var cloud = qa.bitwiseAnd(1 << 5)
           .and(qa.bitwiseAnd(1 << 7))
           .or(qa.bitwiseAnd(1 << 3))
@@ -153,7 +164,7 @@ var greenessL8 = function(image){
 
 // Remove edge pixels that don't occur in all bands
  //var mask2 = image.mask().reduce(ee.Reducer.min());
-  return image.select(['B1', 'B2', 'B3', 'B4', 'B5', 'B7'], // change band names
+  return image.select(['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7'], // change band names
     ['blue', 'green', 'red', 'nir', 'swir1', 'swir2'])
   .updateMask(cloud.not())//.updateMask(mask2)
 };
@@ -207,89 +218,78 @@ var greenL7 = function(image){
       return image.addBands(green);
 };
 
+//Apply scaling and filtering to image collectiona
+var collectionL7 = ee.ImageCollection('LANDSAT/LE07/C02/T1_L2')
+    .filterDate(start, end)
+    .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
+    .map(applyScaleFactors);
+var collectionL5 = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')
+    .filterDate(start, end)
+    .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
+    .map(applyScaleFactors);
+var collectionL4 = ee.ImageCollection('LANDSAT/LT04/C02/T1_L2')
+    .filterDate(start, end)
+    .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
+    .map(applyScaleFactors);
+
 //Calculate NDVI, bsi, TC (brightness, greenness and wetness) from L7 and L5
-  var collectionL7_ndvi = ee.ImageCollection('LANDSAT/LE07/C01/T1_SR')
-    .filterDate(start, end)
-    .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
+  var collectionL7_ndvi = collectionL7
     .map(cloudMaskL457)
     .map(addNDVI)
-    .map(bsiL7)
     .select('L4_7_SR_NDVI');  
-  var collectionL5_ndvi = ee.ImageCollection('LANDSAT/LT05/C01/T1_SR')
-    .filterDate(start, end)
-   .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
+  var collectionL5_ndvi = collectionL5
     .map(cloudMaskL457)
     .map(addNDVI)
-    .map(bsiL7)
     .select('L4_7_SR_NDVI');    
-   var collectionL7_bsi = ee.ImageCollection('LANDSAT/LE07/C01/T1_SR')
-    .filterDate(start, end)
-    .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
+   var collectionL7_bsi = collectionL7
     .map(cloudMaskL457)
     .map(addNDVI)
     .map(bsiL7)
     .select('L4_7_SR_bsi');   
-  var collectionL5_bsi = ee.ImageCollection('LANDSAT/LT05/C01/T1_SR')
-    .filterDate(start, end)
-   .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
+  var collectionL5_bsi = collectionL5
     .map(cloudMaskL457)
-    .map(addNDVI)
     .map(bsiL7)
     .select('L4_7_SR_bsi');
-  var collectionL7_wet = ee.ImageCollection('LANDSAT/LE07/C01/T1_SR')
-    .filterDate(start, end)
-    .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
+  var collectionL7_wet = collectionL7
     .map(cloudMaskL457)
     .map(wetL7)
     .select('L4_7_SR_wetness');   
-  var collectionL5_wet = ee.ImageCollection('LANDSAT/LT05/C01/T1_SR')
+  var collectionL5_wet = collectionL5
     .filterDate(start, end)
    .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
     .map(cloudMaskL457)
     .map(wetL7)
     .select('L4_7_SR_wetness');    
-  var collectionL4_wet = ee.ImageCollection('LANDSAT/LT04/C01/T1_SR')
-    .filterDate(start, end)
-   .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
+  var collectionL4_wet = collectionL4
     .map(cloudMaskL457)
     .map(wetL7)
     .select('L4_7_SR_wetness');    
-  var collectionL7_bright = ee.ImageCollection('LANDSAT/LE07/C01/T1_SR')
-    .filterDate(start, end)
-    .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
+  var collectionL7_bright = collectionL7
     .map(cloudMaskL457)
     .map(brightL7)
     .select('L4_7_SR_brightness');  
-  var collectionL5_bright = ee.ImageCollection('LANDSAT/LT05/C01/T1_SR')
-    .filterDate(start, end)
-   .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
+  var collectionL5_bright = collectionL5
     .map(cloudMaskL457)
     .map(brightL7)
     .select('L4_7_SR_brightness');    
-  var collectionL4_bright = ee.ImageCollection('LANDSAT/LT04/C01/T1_SR')
-    .filterDate(start, end)
-   .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
+  var collectionL4_bright = collectionL4
     .map(cloudMaskL457)
     .map(brightL7)
     .select('L4_7_SR_brightness');
-  var collectionL7_green = ee.ImageCollection('LANDSAT/LE07/C01/T1_SR')
-    .filterDate(start, end)
-    .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
+  var collectionL7_green = collectionL7
     .map(cloudMaskL457)
     .map(greenL7)
     .select('L4_7_SR_greeness');    
-  var collectionL5_green = ee.ImageCollection('LANDSAT/LT05/C01/T1_SR')
-    .filterDate(start, end)
-   .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
+  var collectionL5_green = collectionL5
     .map(cloudMaskL457)
     .map(greenL7)
     .select('L4_7_SR_greeness');   
-  var collectionL4_green = ee.ImageCollection('LANDSAT/LT04/C01/T1_SR')
-    .filterDate(start, end)
-   .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
+  var collectionL4_green = collectionL4
     .map(cloudMaskL457)
     .map(greenL7)
     .select('L4_7_SR_greeness');
+
+//---- Sentinel 2 ----//
 
 // Function to mask clouds using the Sentinel-2 QA band.
   function maskS2clouds(image) {
@@ -306,93 +306,78 @@ var greenL7 = function(image){
 }
 // Caculate Sentinel 2 TOA NDVI, basi and TC
   var addNDVI= function(image){
-  var ndvi =image.normalizedDifference(['B8A','B4']).rename('S2_TOA_NDVI');
+  var ndvi =image.normalizedDifference(['B8','B4']).rename('S2_NDVI');
   return image.addBands(ndvi);
 };
 
 var bsiS2=function(image){
   var bsi=image.select('B12').add(image.select('B4'))
-        .subtract(image.select('B8A')).subtract(image.select('B2'))
+        .subtract(image.select('B8')).subtract(image.select('B2'))
         .divide(image.select('B12').add(image.select('B4'))
-        .add(image.select('B8A')).add(image.select('B2')))
-        .rename('S2_TOA_bsi');
+        .add(image.select('B8')).add(image.select('B2')))
+        .rename('S2_bsi');
         return image.addBands(bsi);
 };
 var wetS2 = function(image){
   var wet= image.expression(
-        '10000*(((BLUE * 0.0315) + (GREEN * 0.2021) + (RED * 0.3102) + (NIR * 0.1594) + (SWIR1 * -0.6806) + (SWIR2 * -0.6109)))', {
+        '(((BLUE * 0.0315) + (GREEN * 0.2021) + (RED * 0.3102) + (NIR * 0.1594) + (SWIR1 * -0.6806) + (SWIR2 * -0.6109)))', {
           'SWIR2': image.select('B12'),
           'SWIR1': image.select('B11'),
-          'NIR': image.select('B8A'),
+          'NIR': image.select('B8'),
           'RED': image.select('B4'),
           'GREEN': image.select('B3'),
           'BLUE': image.select('B2')
-      }).rename('S2_TOA_wetness');    
+      }).rename('S2_wetness');    
       return image.addBands(wet);
 };
 var brightS2 = function(image){
   var bright= image.expression(
-        '10000*((BLUE * 0.2043) + (GREEN * 0.4158) + (RED * 0.5524) + (NIR * 0.5741) + (SWIR1 * 0.3124) + (SWIR2 * 0.2303))', {
+        '((BLUE * 0.2043) + (GREEN * 0.4158) + (RED * 0.5524) + (NIR * 0.5741) + (SWIR1 * 0.3124) + (SWIR2 * 0.2303))', {
           'SWIR2': image.select('B12'),
           'SWIR1': image.select('B11'),
-          'NIR': image.select('B8A'),
+          'NIR': image.select('B8'),
           'RED': image.select('B4'),
           'GREEN': image.select('B3'),
           'BLUE': image.select('B2')
-      }).rename('S2_TOA_brightness');    
+      }).rename('S2_brightness');    
       return image.addBands(bright);
 };
 var greenS2 = function(image){
   var green= image.expression(
-        '10000*((BLUE * -0.1603) + (GREEN * -0.2819) + (RED * -0.4934) + (NIR * 0.7940) + (SWIR1 * -0.0002) + (SWIR2 * -0.1446))', {
+        '((BLUE * -0.1603) + (GREEN * -0.2819) + (RED * -0.4934) + (NIR * 0.7940) + (SWIR1 * -0.0002) + (SWIR2 * -0.1446))', {
           'SWIR2': image.select('B12'),
           'SWIR1': image.select('B11'),
-          'NIR': image.select('B8A'),
+          'NIR': image.select('B8'),
           'RED': image.select('B4'),
           'GREEN': image.select('B3'),
           'BLUE': image.select('B2')
-      }).rename('S2_TOA_greeness');    
+      }).rename('S2_greeness');    
       return image.addBands(green);
 };
 
+// Load Sentinel-2 dataset
+  var collectionS = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
+    .filterDate(start, end)
+    .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
+    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
+    .map(maskS2clouds)
+    
 // Load Sentinel-2 TOA reflectance data.
-  var collectionS_ndvi = ee.ImageCollection('COPERNICUS/S2')
-    .filterDate(start, end)
-    .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
-    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
-    .map(maskS2clouds)
+  var collectionS_ndvi = collectionS
     .map(addNDVI)
+    .select('S2_NDVI');
+  var collectionS_bsi = collectionS
     .map(bsiS2)
-    .select('S2_TOA_NDVI');
-  var collectionS_bsi = ee.ImageCollection('COPERNICUS/S2')
-    .filterDate(start, end)
-    .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
-    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
-    .map(maskS2clouds)
-    .map(addNDVI)
-    .map(bsiS2)
-    .select('S2_TOA_bsi');      
-  var collectionS_wet = ee.ImageCollection('COPERNICUS/S2')
-    .filterDate(start, end)
-    .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
-    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
-    .map(maskS2clouds)
+    .select('S2_bsi');      
+  var collectionS_wet = collectionS
     .map(wetS2)
-    .select('S2_TOA_wetness');   
-  var collectionS_bright = ee.ImageCollection('COPERNICUS/S2')
-    .filterDate(start, end)
-    .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
-    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
-    .map(maskS2clouds)
+    .select('S2_wetness');   
+  var collectionS_bright = collectionS
     .map(brightS2)
-    .select('S2_TOA_brightness');        
-  var collectionS_green = ee.ImageCollection('COPERNICUS/S2')
-    .filterDate(start, end)
-    .filter(ee.Filter.calendarRange(startmonth,endmonth,'month'))
-    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
-    .map(maskS2clouds)
+    .select('S2_brightness');        
+  var collectionS_green = collectionS
     .map(greenS2)
-    .select('S2_TOA_greeness');  
+    .select('S2_greeness');  
 
 //Merge all the collections
   var collection_ndvi = collectionL8_ndvi.merge(collectionL5_ndvi)
@@ -407,25 +392,25 @@ var greenS2 = function(image){
                        .merge(collectionL7_green).merge(collectionS_green);                     
 
 ////Filter Landsat collection for the specified area
-  var collection8 = ee.ImageCollection('LANDSAT/LC08/C01/T1_SR')
+  var collection8 = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')
     .filterDate(start, end)
     .filterBounds(locat)
-    .select(['B2','B3','B4','B5','B6','B7'],
+    .select(['SR_B2','SR_B3','SR_B4','SR_B5','SR_B6','SR_B7'],
     ['blue','green','red','NIR','SWIR1','SWIR2']);
-  var collection7 = ee.ImageCollection('LANDSAT/LE07/C01/T1_SR')
+  var collection7 = ee.ImageCollection('LANDSAT/LE07/C02/T1_L2')
     .filterDate(start, end)
     .filterBounds(locat)
-    .select(['B1','B2','B3','B4','B5','B7'],
+    .select(['SR_B1','SR_B2','SR_B3','SR_B4','SR_B5','SR_B7'],
     ['blue','green','red','NIR','SWIR1','SWIR2']);
-  var collection5 = ee.ImageCollection('LANDSAT/LT05/C01/T1_SR')
+  var collection5 = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')
     .filterDate(start, end)
     .filterBounds(locat)
-    .select(['B1','B2','B3','B4','B5','B7'],
+    .select(['SR_B1','SR_B2','SR_B3','SR_B4','SR_B5','SR_B7'],
     ['blue','green','red','NIR','SWIR1','SWIR2']);
-  var collection4 = ee.ImageCollection('LANDSAT/LT04/C01/T1_SR')
+  var collection4 = ee.ImageCollection('LANDSAT/LT04/C02/T1_L2')
     .filterDate(start, end)
     .filterBounds(locat)
-    .select(['B1','B2','B3','B4','B5','B7'],
+    .select(['SR_B1','SR_B2','SR_B3','SR_B4','SR_B5','SR_B7'],
     ['blue','green','red','NIR','SWIR1','SWIR2']);
 //Merge all the collections
   var collection=collection8.merge(collection7).merge(collection5).merge(collection4)
@@ -468,7 +453,7 @@ var greenS2 = function(image){
   var image5_au = collection_au.limit(2).sort('SENSING_TIME',true);
 
 //Set the band combination and color scheme
-  var vis2={bands: ["SWIR2", "NIR", "red"], min:0, max: 5000};
+  var vis2={bands: ["SWIR2", "NIR", "red"], min:0, max: 30000};
   var imageclear0 = ee.Image(image0).visualize(vis2);
   var imageclear0_sp = ee.Image(image0_sp).visualize(vis2);
   var imageclear0_au = ee.Image(image0_au).visualize(vis2);
@@ -486,7 +471,7 @@ var greenS2 = function(image){
     value: 'NDVI/BSI/TC Time Series Inspector',
     style: {fontSize: '20px', fontWeight: 'bold'}
   }),
-  ui.Label('Click a location to see NDVI/BSI/TC time series from Landsat SR and Sentinel-2 TOA')
+  ui.Label('Click a location to see NDVI/BSI/TC time series from Landsat SR and Sentinel-2')
 ]);
   mapPanel.add(intro);
 
@@ -579,7 +564,7 @@ var bsiChart = ui.Chart.image.series(collection_bsi, point, ee.Reducer.mean(), k
 // Customize the chart.
   wetChart.setOptions({
     title: 'Wetness: time series',
-    vAxis: {title: 'Wetness',ticks:[-5000,-4000,-3000,-2000,-1000,0]},
+    vAxis: {title: 'Wetness',ticks:[-0.5000,-0.4000,-0.3000,-0.2000,-0.1000,0]},
     hAxis: {title: 'Date', format: 'MM-yy', gridlines: {count: 7}},
     series: {
       0: {
@@ -608,7 +593,7 @@ var bsiChart = ui.Chart.image.series(collection_bsi, point, ee.Reducer.mean(), k
 // Customize the chart.
   brightChart.setOptions({
     title: 'Brightness: time series',
-    vAxis: {title: 'Brightness',ticks:[1000,2000,3000,4000,5000,6000]},
+    vAxis: {title: 'Brightness',ticks:[0.1000,0.2000,0.3000,0.4000,0.5000,0.6000]},
     hAxis: {title: 'Date', format: 'MM-yy', gridlines: {count: 7}},
     series: {
       0: {
@@ -637,7 +622,7 @@ var bsiChart = ui.Chart.image.series(collection_bsi, point, ee.Reducer.mean(), k
   // Customize the chart.
   greenChart.setOptions({
     title: 'Greenness: time series',
-    vAxis: {title: 'Greenness',ticks:[0,500,1000,1500,2000,2500]},
+    vAxis: {title: 'Greenness',ticks:[0,0.0500,0.1000,0.1500,0.2000,0.2500]},
     hAxis: {title: 'Date', format: 'MM-yy', gridlines: {count: 7}},
     series: {
       0: {
@@ -745,4 +730,3 @@ var bsiChart = ui.Chart.image.series(collection_bsi, point, ee.Reducer.mean(), k
 //   bands: ['B6', 'B5', 'B4'],  min: 0,  max: 5000,gamma: [0.95, 1.1, 1]};
 // Map.addLayer(image_spec, vizParams, 'false color composite');
 //var locat = ee.Geometry.Point(25.332342,55.002364);
-
